@@ -1,0 +1,53 @@
+name: CD Pipeline (Main)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    types: [ opened, synchronize, reopened ]
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  bump-version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Incrementar versión en README.md
+        run: |
+          CURRENT_DATE=$(date +"%Y-%m-%d %H:%M:%S")
+          if grep -q "AppVersion-" README.md; then
+            CURRENT_VER=$(grep -oP 'AppVersion-\K\d+' README.md)
+            NEXT_VER=$((CURRENT_VER + 1))
+            sed -i "s/AppVersion-$CURRENT_VER/AppVersion-$NEXT_VER ($CURRENT_DATE)/g" README.md
+          else
+            echo "AppVersion-1 ($CURRENT_DATE)" >> README.md
+          fi
+
+      - name: Hacer commit y push del README
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@://github.com"
+          git add README.md
+          git commit -m "build: bump versión en README [skip ci]" || echo "No hay cambios"
+          git push origin main
+
+  validate-prod:
+    needs: bump-version
+    runs-on: self-hosted
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Validar PROD_TOKEN contra variable local
+        shell: powershell
+        run: |
+          Write-Output "Validando token de producción..."
+          if ("${{ secrets.PROD_TOKEN }}" -eq $env:LOCAL_PROD_TOKEN) {
+            Write-Output "✅ Validación exitosa. Los tokens coinciden."
+          } else {
+            Write-Error "❌ Error: Los tokens no coinciden."
+            exit 1
+          }
